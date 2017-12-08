@@ -55,6 +55,16 @@ func (c *HyperConfig) Logger() *logrus.Entry {
 	return virtLog.WithField("subsystem", "hyperstart")
 }
 
+//Generic function for creating a named-id for passing on the hypervisor commandline
+func makeNameID(namedType string, id string) string {
+	nameID := fmt.Sprintf("%s-%s", namedType, id)
+	if len(nameID) > maxDevIDSize {
+		nameID = string(nameID[:maxDevIDSize])
+	}
+
+	return nameID
+}
+
 func (c *HyperConfig) validate(pod Pod) bool {
 	if len(c.Sockets) == 0 {
 		c.Logger().Info("No sockets from configuration")
