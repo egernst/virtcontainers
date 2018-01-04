@@ -174,18 +174,70 @@ const (
 	VhostUserBlk = "vhost-user-blk-pci"
 )
 
-// VhostUserDevice refers to a vhost-user device implemntation.
-type VhostUserDevice struct {
-	DeviceType    string
-	DeviceInfo    DeviceInfo
-	SocketPath    string
-	HardAddr      string //valid only if VhostUserType is VhostUserNet
-	ID            string
-	VhostUserType VhostUserDeviceType
+// VhostUserDevice represents a vhost-user device. Shared
+// attributes of a vhost-user device can be retrieved using
+// the Attrs() method. Unique data can be obtained by casting
+// the object to the proper type.
+type VhostUserDevice interface {
+	Attrs() *VhostUserDeviceAttrs
+	Type() string
 }
 
-func (device *VhostUserDevice) attach(h hypervisor, c *Container) (err error) {
+// VhostUserDeviceAttrs represents data shared by most vhost-user devices
+type VhostUserDeviceAttrs struct {
+	DeviceType string
+	DeviceInfo DeviceInfo
+	SocketPath string
+	ID         string
+}
 
+// VhostUserNetDevice is a network vhost-user based device
+type VhostUserNetDevice struct {
+	VhostUserDeviceAttrs
+	MacAddress string
+}
+
+// Attrs returns the VhostUserDeviceAttrs associated with the vhost-user device
+func (vhostUserNetDevice *VhostUserNetDevice) Attrs() *VhostUserDeviceAttrs {
+	return &vhostUserNetDevice.VhostUserDeviceAttrs
+}
+
+// Type returns the type associated with the vhost-user device
+func (vhostUserNetDevice *VhostUserNetDevice) Type() string {
+	return VhostUserNet
+}
+
+// VhostUserSCSIDevice is a SCSI vhost-user based device
+type VhostUserSCSIDevice struct {
+	VhostUserDeviceAttrs
+}
+
+// Attrs returns the VhostUserDeviceAttrs associated with the vhost-user device
+func (vhostUserSCSIDevice *VhostUserSCSIDevice) Attrs() *VhostUserDeviceAttrs {
+	return &vhostUserSCSIDevice.VhostUserDeviceAttrs
+}
+
+// Type returns the type associated with the vhost-user device
+func (vhostUserSCSIDevice *VhostUserSCSIDevice) Type() string {
+	return VhostUserSCSI
+}
+
+// VhostUserBlkDevice is a block vhost-user based device
+type VhostUserBlkDevice struct {
+	VhostUserDeviceAttrs
+}
+
+// Attrs returns the VhostUserDeviceAttrs associated with the vhost-user device
+func (vhostUserBlkDevice *VhostUserBlkDevice) Attrs() *VhostUserDeviceAttrs {
+	return &vhostUserBlkDevice.VhostUserDeviceAttrs
+}
+
+// Type returns the type associated with the vhost-user device
+func (vhostUserBlkDevice *VhostUserBlkDevice) Type() string {
+	return VhostUserBlk
+}
+
+func vhostUserAttach(device VhostUserDevice, h hypervisor, c *Container) (err error) {
 	// generate a unique ID to be used for hypervisor commandline fields
 	randBytes, err := generateRandomBytes(8)
 	if err != nil {
@@ -193,16 +245,20 @@ func (device *VhostUserDevice) attach(h hypervisor, c *Container) (err error) {
 	}
 	id := hex.EncodeToString(randBytes)
 
-	device.ID = id
+	device.Attrs().ID = id
 
 	return h.addDevice(device, vhostuserDev)
 }
 
-func (device *VhostUserDevice) detach(h hypervisor) error {
+func (device *VhostUserNetDevice) attach(h hypervisor, c *Container) (err error) {
+	return vhostUserAttach(device, h, c)
+}
+
+func (device *VhostUserNetDevice) detach(h hypervisor) error {
 	return nil
 }
 
-func (device *VhostUserDevice) deviceType() string {
+func (device *VhostUserNetDevice) deviceType() string {
 	return device.DeviceType
 }
 
