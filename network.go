@@ -249,9 +249,11 @@ func (endpoint *VhostUserEndpoint) Attach(h hypervisor) error {
 	id := hex.EncodeToString(randBytes)
 
 	d := VhostUserNetDevice{
-		SocketPath: endpoint.SocketPath,
+		VhostUserDeviceAttrs{
+			SocketPath: endpoint.SocketPath,
+			ID:         endpoint.SocketPath,
+		},
 		MacAddress: endpoint.HardAddr,
-		ID:         id,
 	}
 	return h.addDevice(d, vhostuserDev)
 }

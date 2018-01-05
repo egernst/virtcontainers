@@ -237,6 +237,8 @@ func (vhostUserBlkDevice *VhostUserBlkDevice) Type() string {
 	return VhostUserBlk
 }
 
+// vhostUserAttach handles the common logic among all of the vhost-user device's
+// attach functions
 func vhostUserAttach(device VhostUserDevice, h hypervisor, c *Container) (err error) {
 	// generate a unique ID to be used for hypervisor commandline fields
 	randBytes, err := generateRandomBytes(8)
@@ -250,15 +252,48 @@ func vhostUserAttach(device VhostUserDevice, h hypervisor, c *Container) (err er
 	return h.addDevice(device, vhostuserDev)
 }
 
-func (device *VhostUserNetDevice) attach(h hypervisor, c *Container) (err error) {
-	return vhostUserAttach(device, h, c)
+//
+// VhostUserNetDevice's implementation of the device interface:
+//
+func (vhostUserNetDevice *VhostUserNetDevice) attach(h hypervisor, c *Container) (err error) {
+	return vhostUserAttach(vhostUserNetDevice, h, c)
 }
 
-func (device *VhostUserNetDevice) detach(h hypervisor) error {
+func (vhostUserNetDevice *VhostUserNetDevice) detach(h hypervisor) error {
 	return nil
 }
 
-func (device *VhostUserNetDevice) deviceType() string {
+func (vhostUserNetDevice *VhostUserNetDevice) deviceType() string {
+	return device.DeviceType
+}
+
+//
+// VhostUserBlkDevice's implementation of the device interface:
+//
+func (vhostUserBlkDevice *VhostUserBlkDevice) attach(h hypervisor, c *Container) (err error) {
+	return vhostUserAttach(vhostUserBlkDevice, h, c)
+}
+
+func (vhostUserBlkDevice *VhostUserBlkDevice) detach(h hypervisor) error {
+	return nil
+}
+
+func (vhostUserBlkDevice *VhostUserBlkDevice) deviceType() string {
+	return device.DeviceType
+}
+
+//
+// VhostUserSCSIDevice's implementation of the device interface:
+//
+func (device *VhostUserSCSIDevice) attach(h hypervisor, c *Container) (err error) {
+	return vhostUserAttach(device, h, c)
+}
+
+func (device *VhostUserSCSIDevice) detach(h hypervisor) error {
+	return nil
+}
+
+func (device *VhostUserSCSIDevice) deviceType() string {
 	return device.DeviceType
 }
 
