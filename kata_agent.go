@@ -300,6 +300,102 @@ func (k *kataAgent) exec(pod *Pod, c Container, cmd Cmd) (*Process, error) {
 	return prepareAndStartShim(pod, k.shim, c.id, req.ExecId, k.state.URL, cmd)
 }
 
+func (k *kataAgent) sendNetworkInterfaceAndRouteRequests(pod Pod) error {
+	networkNS, err := pod.storage.fetchPodNetwork(pod.id)
+	if err != nil {
+		return err
+	}
+
+	if networkNS.NetNsPath == "" {
+		return nil
+	}
+
+	for _, endpoint := range networkNS.Endpoints {
+		var route grpc.Route
+		var ipAddresses []*grpc.IPAddress
+		for _, addr := range endpoint.Properties().Addrs {
+			// Skip IPv6 because not supported
+			// Skip localhost interface.
+			if addr.IP.To4() == nil {
+				// Skip IPv6 because not supported
+				k.Logger().WithFields(logrus.Fields{
+					"unsupported-address-type": "ipv6",
+					"address":                  addr,
+				}).Warn("unsupported address")
+				continue
+			}
+			if addr.IP.IsLoopback() {
+				continue
+			}
+			netMask, _ := addr.Mask.Size()
+			ipAddress := grpc.IPAddress{
+				Family:  grpc.IPFamily_v4,
+				Address: addr.IP.String(),
+				Mask:    fmt.Sprintf("%d", netMask),
+			}
+			ipAddresses = append(ipAddresses, &ipAddress)
+		}
+		ifc := grpc.Interface{
+			IPAddresses: ipAddresses,
+			Device:      endpoint.Name(),
+			Name:        endpoint.Name(),
+			Mtu:         uint64(endpoint.Properties().Iface.MTU),
+			HwAddr:      endpoint.HardwareAddr(),
+		}
+
+		// send update interface request
+		ifcReq := &grpc.UpdateInterfaceRequest{
+			Interface: &ifc,
+		}
+
+		resultingInterface, err := k.sendReq(ifcReq)
+		if err != nil {
+			k.Logger().WithFields(logrus.Fields{
+				"interface requested": fmt.Sprintf("%+v", ifc),
+				"resulting interface": fmt.Sprintf("%+v", resultingInterface),
+			}).WithError(err).Error("update interface request failed")
+			continue
+		}
+
+		for _, r := range endpoint.Properties().Routes {
+
+			if r.Dst == nil {
+				route.Dest = ""
+			} else {
+				route.Dest = r.Dst.String()
+
+				if r.Dst.IP.To4() == nil {
+					// Skip IPv6 because not supported
+					k.Logger().WithFields(logrus.Fields{
+						"unsupported-route-type": "ipv6",
+						"destination":            route.Dest,
+					}).Warn("unsupported route")
+					continue
+				}
+			}
+
+			route.Gateway = r.Gw.String()
+			if route.Gateway == "<nil>" {
+				route.Gateway = ""
+			}
+			route.Device = endpoint.Name()
+
+			//send add route request
+			routeReq := &grpc.AddRouteRequest{
+				Route: &route,
+			}
+			_, err = k.sendReq(routeReq)
+			if err != nil {
+				k.Logger().WithFields(logrus.Fields{
+					"route requested": fmt.Sprintf("%+v", route),
+				}).WithError(err).Error("update route request failed")
+				continue
+			}
+		}
+	}
+	return nil
+}
+
 func (k *kataAgent) startPod(pod Pod) error {
 	if k.proxy == nil {
 		return errorMissingProxy
@@ -333,6 +429,10 @@ func (k *kataAgent) startPod(pod Pod) error {
 	hostname := pod.config.Hostname
 	if len(hostname) > maxHostnameLen {
 		hostname = hostname[:maxHostnameLen]
+	}
+
+	if err := k.sendNetworkInterfaceAndRouteRequests(pod); err != nil {
+		return err
 	}
 
 	// We mount the shared directory in a predefined location
@@ -647,6 +747,12 @@ func (k *kataAgent) sendReq(request interface{}) (interface{}, error) {
 	case *grpc.SignalProcessRequest:
 		_, err := k.client.SignalProcess(context.Background(), req)
 		return nil, err
+	case *grpc.AddRouteRequest:
+		_, err := k.client.AddRoute(context.Background(), req)
+		return nil, err
+	case *grpc.UpdateInterfaceRequest:
+		ifc, err := k.client.UpdateInterface(context.Background(), req)
+		return ifc, err
 	default:
 		return nil, fmt.Errorf("Unknown gRPC type %T", req)
 	}
