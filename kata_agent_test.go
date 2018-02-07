@@ -170,23 +170,27 @@ func (p *gRPCProxy) DestroySandbox(ctx context.Context, req *pb.DestroySandboxRe
 	return emptyResp, nil
 }
 
-func (p *gRPCProxy) AddInterface(ctx context.Context, req *pb.AddInterfaceRequest) (*gpb.Empty, error) {
+func (p *gRPCProxy) AddInterface(ctx context.Context, req *pb.AddInterfaceRequest) (*pb.Interface, error) {
+	return nil, nil
+}
+
+func (p *gRPCProxy) RemoveInterface(ctx context.Context, req *pb.RemoveInterfaceRequest) (*pb.Interface, error) {
+	return nil, nil
+}
+
+func (p *gRPCProxy) UpdateInterface(ctx context.Context, req *pb.UpdateInterfaceRequest) (*pb.Interface, error) {
+	return nil, nil
+}
+
+func (p *gRPCProxy) AddRoute(ctx context.Context, req *pb.AddRouteRequest) (*gpb.Empty, error) {
 	return emptyResp, nil
 }
 
-func (p *gRPCProxy) RemoveInterface(ctx context.Context, req *pb.RemoveInterfaceRequest) (*gpb.Empty, error) {
+func (p *gRPCProxy) UpdateRoute(ctx context.Context, req *pb.UpdateRouteRequest) (*gpb.Empty, error) {
 	return emptyResp, nil
 }
 
-func (p *gRPCProxy) UpdateInterface(ctx context.Context, req *pb.UpdateInterfaceRequest) (*gpb.Empty, error) {
-	return emptyResp, nil
-}
-
-func (p *gRPCProxy) AddRoute(ctx context.Context, req *pb.RouteRequest) (*gpb.Empty, error) {
-	return emptyResp, nil
-}
-
-func (p *gRPCProxy) RemoveRoute(ctx context.Context, req *pb.RouteRequest) (*gpb.Empty, error) {
+func (p *gRPCProxy) RemoveRoute(ctx context.Context, req *pb.RemoveRouteRequest) (*gpb.Empty, error) {
 	return emptyResp, nil
 }
 
