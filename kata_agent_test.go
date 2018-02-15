@@ -26,6 +26,7 @@ import (
 	"github.com/containers/virtcontainers/pkg/mock"
 	gpb "github.com/gogo/protobuf/types"
 	pb "github.com/kata-containers/agent/protocols/grpc"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -246,4 +247,145 @@ func TestKataAgentSendReq(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestGenerateKataInterfacesAndRoutes(t *testing.T) {
+
+	impl := &gRPCProxy{}
+
+	proxy := mock.ProxyGRPCMock{
+		GRPCImplementer: impl,
+		GRPCRegister:    gRPCRegister,
+	}
+
+	sockDir, err := testGenerateKataProxySockDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sockDir)
+
+	testKataProxyURL := fmt.Sprintf(testKataProxyURLTempl, sockDir)
+	if err := proxy.Start(testKataProxyURL); err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Stop()
+
+	k := &kataAgent{
+		state: KataAgentState{
+			URL: testKataProxyURL,
+		},
+	}
+
+	/*
+		dst := &net.IPNet{
+			IP: net.IPv4(192, 168, 0, 0),
+			Mask: net.CIDRMak(24,32),
+		}
+		ip := net.IPv4(127, 1, 1, 1)
+		route := netlink.Route{LinkIndex: link.Attrs().Index, Dst: dst, Src: ip}
+
+
+		Src:     &net.IPNet{IP: net.IPv4(byte(10), byte(10), byte(thread), 0), Mask: []byte{255, 255, 255, 0}},
+		Dst:     &net.IPNet{IP: net.IPv4(byte(10), byte(10), byte(thread), 0), Mask: []byte{255, 255, 255, 0}},
+
+	*/
+	var addrs []netlink.Addr
+	var routes []netlink.Route
+
+	// Create a couple of addresses
+	address1 := &net.IPNet{IP: net.IPv4(172, 17, 0, 2), Mask: net.CIDRMask(16, 32)}
+	addr := netlink.Addr{IPNet: address1, Label: "VirtIfacelo"}
+
+	addrs = append(addrs, addr)
+
+	// Create a couple of routes:
+	route1 := netlink.Route{LinkIndex: 329, Dst: nil, Src: nil, Gw: net.IPv4(172, 17, 0, 1)}
+	routes = append(routes, route1)
+
+	dst2 := &net.IPNet{IP: net.IPv4(172, 17, 0, 0), Mask: net.CIDRMask(16, 32)}
+	src2 := net.IPv4(172, 17, 0, 2)
+	gw2 := net.IPv4(172, 17, 0, 1)
+	route2 := netlink.Route{LinkIndex: 329, Dst: dst2, Src: src2, Gw: gw2}
+	routes = append(routes, route2)
+
+	networkInfo := NetworkInfo{
+		Iface: NetlinkIface{
+			LinkAttrs: netlink.LinkAttrs{MTU: 1500},
+			Type:      "",
+		},
+		Addrs:  addrs,
+		Routes: routes,
+	}
+
+	ep0 := &PhysicalEndpoint{
+		IfaceName:          "eth0",
+		HardAddr:           net.HardwareAddr{0x02, 0x00, 0xca, 0xfe, 0x00, 0x04}.String(),
+		EndpointProperties: networkInfo,
+	}
+
+	var endpoints []Endpoint
+
+	endpoints = append(endpoints, ep0)
+
+	nns := NetworkNamespace{NetNsPath: "foobar", NetNsCreated: true, Endpoints: endpoints}
+
+	resInterfaces, resRoutes, err := k.generateKataInterfacesAndRoutes(nns)
+	if err != nil {
+		fmt.Println("failure")
+	}
+
+	fmt.Println("interfaces: %+v", resInterfaces)
+	fmt.Println("routes: %+v", resRoutes)
+
+	/*
+	   =========
+	   Feb 15 15:09:14 eernstworkstation kata-runtime-cc[107145]: time="2018-02-15T15:09:14-08:00" level=warning msg="endpoint description for reference" endpoint="&
+	   {NetPair:
+	   	{ID:08db426b-ab5f-480e-af4b-19af86777eb2 Name:br0 VirtIface:
+	   		{Name:eth0 HardAddr:02:00:ca:fe:00:00 Addrs:[172.17.0.2/16 eth0]} TAPIface:
+	   		{Name:tap0 HardAddr:02:42:ac:11:00:02 Addrs:[]}
+	   		NetInterworkingModel:2
+	   		VMFds:[0xc42000fa88 0xc42000fa90 0xc42000fa98 0xc42000faa0 0xc42000faa8 0xc42000fab0 0xc42000fab8 0xc42000fac0]
+	   		VhostFds:[0xc42000fac8 0xc42000fad0 0xc42000fad8 0xc42000fae0 0xc42000fae8 0xc42000faf0 0xc42000faf8 0xc42000fb00]}
+	   		EndpointProperties:
+	   		{Iface:
+	   			{LinkAttrs:
+	   				{Index:329
+	   				MTU:1500
+	   				TxQLen:0
+	   				Name:eth0
+	   				HardwareAddr:02:42:ac:11:00:02
+	   				Flags:up|broadcast|multicast
+	   				RawFlags:69699
+	   				ParentIndex:330
+	   				MasterIndex:0 Namespace:<nil> Alias: Statistics:0xc4200beb40 Promisc:0 Xdp:<nil> EncapType:ether Protinfo:<nil> OperState:up NetNsID:0 NumTxQueues:0 NumRxQueues:0}
+	   			Type:veth}
+	   		Addrs:[172.17.0.2/16 eth0]
+	   		Routes:[
+	   		{Ifindex: 329 Dst: <nil> Src: <nil> Gw: 172.17.0.1 Flags: [] Table: 254}
+	   		{Ifindex: 329 Dst: 172.17.0.0/16 Src: 172.17.0.2 Gw: <nil> Flags: [] Table: 254}]
+	   		DNS:
+	   {Servers:[] Domain: Searches:[] Options:[]}} Physical:false EndpointType:virtual}" source=virtcontainers subsystem=kata_agent
+
+
+	   ======
+
+
+
+	   	linkAttrs := LinkAttrs
+	   	{
+	   		Name: "etho",
+	   	}
+
+	   	addr1 := netlink.Addr {
+
+	   	}
+	   	// create a couple of endpoints
+
+	   	networkNS := NetworkNamespace{
+	   		NetNsPath:    "foobar",
+	   		NetNsCreated: true,
+	   		Endpoints:    nil,
+	   	}
+	*/
 }

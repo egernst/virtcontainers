@@ -300,18 +300,21 @@ func (k *kataAgent) exec(pod *Pod, c Container, cmd Cmd) (*Process, error) {
 	return prepareAndStartShim(pod, k.shim, c.id, req.ExecId, k.state.URL, cmd)
 }
 
-func (k *kataAgent) sendNetworkInterfaceAndRouteRequests(pod Pod) error {
-	networkNS, err := pod.storage.fetchPodNetwork(pod.id)
-	if err != nil {
-		return err
-	}
+func (k *kataAgent) generateKataInterfacesAndRoutes(networkNS NetworkNamespace) ([]*grpc.Interface, []*grpc.Route, error) {
 
 	if networkNS.NetNsPath == "" {
-		return nil
+		return nil, nil, fmt.Errorf("network namespace path is empty")
 	}
 
+	var routes []*grpc.Route
+	var ifaces []*grpc.Interface
+
 	for _, endpoint := range networkNS.Endpoints {
-		var route grpc.Route
+
+		k.Logger().WithFields(logrus.Fields{
+			"endpoint": fmt.Sprintf("%+v", endpoint),
+		}).Warn("endpoint description for reference")
+
 		var ipAddresses []*grpc.IPAddress
 		for _, addr := range endpoint.Properties().Addrs {
 			// Skip IPv6 because not supported
@@ -343,21 +346,10 @@ func (k *kataAgent) sendNetworkInterfaceAndRouteRequests(pod Pod) error {
 			HwAddr:      endpoint.HardwareAddr(),
 		}
 
-		// send update interface request
-		ifcReq := &grpc.UpdateInterfaceRequest{
-			Interface: &ifc,
-		}
-
-		resultingInterface, err := k.sendReq(ifcReq)
-		if err != nil {
-			k.Logger().WithFields(logrus.Fields{
-				"interface requested": fmt.Sprintf("%+v", ifc),
-				"resulting interface": fmt.Sprintf("%+v", resultingInterface),
-			}).WithError(err).Error("update interface request failed")
-			continue
-		}
+		ifaces = append(ifaces, &ifc)
 
 		for _, r := range endpoint.Properties().Routes {
+			var route grpc.Route
 
 			if r.Dst == nil {
 				route.Dest = ""
@@ -380,20 +372,15 @@ func (k *kataAgent) sendNetworkInterfaceAndRouteRequests(pod Pod) error {
 			}
 			route.Device = endpoint.Name()
 
-			//send add route request
-			routeReq := &grpc.AddRouteRequest{
-				Route: &route,
-			}
-			_, err = k.sendReq(routeReq)
-			if err != nil {
-				k.Logger().WithFields(logrus.Fields{
-					"route requested": fmt.Sprintf("%+v", route),
-				}).WithError(err).Error("update route request failed")
-				continue
-			}
+			k.Logger().WithFields(logrus.Fields{
+				"route": fmt.Sprintf("%+v", route),
+			}).Warn("Route appended")
+
+			routes = append(routes, &route)
+
 		}
 	}
-	return nil
+	return ifaces, routes, nil
 }
 
 func (k *kataAgent) startPod(pod Pod) error {
@@ -431,8 +418,44 @@ func (k *kataAgent) startPod(pod Pod) error {
 		hostname = hostname[:maxHostnameLen]
 	}
 
-	if err := k.sendNetworkInterfaceAndRouteRequests(pod); err != nil {
+	//
+	// Setup network interfaces and routes
+	//
+	networkNS, err := pod.storage.fetchPodNetwork(pod.id)
+	if err != nil {
 		return err
+	}
+	interfaces, routes, err := k.generateKataInterfacesAndRoutes(networkNS)
+	if err != nil {
+		return err
+	}
+	for _, ifc := range interfaces {
+		// send update interface request
+		ifcReq := &grpc.UpdateInterfaceRequest{
+			Interface: ifc,
+		}
+		resultingInterface, err := k.sendReq(ifcReq)
+		if err != nil {
+			k.Logger().WithFields(logrus.Fields{
+				"interface requested": fmt.Sprintf("%+v", ifc),
+				"resulting interface": fmt.Sprintf("%+v", resultingInterface),
+			}).WithError(err).Error("update interface request failed")
+			continue
+		}
+	}
+	for _, route := range routes {
+		//send add route request
+		routeReq := &grpc.AddRouteRequest{
+			Route: route,
+		}
+		_, err = k.sendReq(routeReq)
+		if err != nil {
+			k.Logger().WithFields(logrus.Fields{
+				"route requested": fmt.Sprintf("%+v", route),
+			}).WithError(err).Error("update route request failed")
+			continue
+		}
+
 	}
 
 	// We mount the shared directory in a predefined location
