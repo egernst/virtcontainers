@@ -21,11 +21,13 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/containers/virtcontainers/pkg/mock"
 	gpb "github.com/gogo/protobuf/types"
 	pb "github.com/kata-containers/agent/protocols/grpc"
+	"github.com/stretchr/testify/assert"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -276,27 +278,20 @@ func TestGenerateKataInterfacesAndRoutes(t *testing.T) {
 		},
 	}
 
-	/*
-		dst := &net.IPNet{
-			IP: net.IPv4(192, 168, 0, 0),
-			Mask: net.CIDRMak(24,32),
-		}
-		ip := net.IPv4(127, 1, 1, 1)
-		route := netlink.Route{LinkIndex: link.Attrs().Index, Dst: dst, Src: ip}
+	//
+	// Basic test:
+	//
 
-
-		Src:     &net.IPNet{IP: net.IPv4(byte(10), byte(10), byte(thread), 0), Mask: []byte{255, 255, 255, 0}},
-		Dst:     &net.IPNet{IP: net.IPv4(byte(10), byte(10), byte(thread), 0), Mask: []byte{255, 255, 255, 0}},
-
-	*/
 	var addrs []netlink.Addr
 	var routes []netlink.Route
 
 	// Create a couple of addresses
 	address1 := &net.IPNet{IP: net.IPv4(172, 17, 0, 2), Mask: net.CIDRMask(16, 32)}
-	addr := netlink.Addr{IPNet: address1, Label: "VirtIfacelo"}
-
-	addrs = append(addrs, addr)
+	address2 := &net.IPNet{IP: net.IPv4(182, 17, 0, 2), Mask: net.CIDRMask(16, 32)}
+	addr1 := netlink.Addr{IPNet: address1, Label: "phyifc0"}
+	addr2 := netlink.Addr{IPNet: address2, Label: "phyifc1"}
+	addrs = append(addrs, addr1)
+	addrs = append(addrs, addr2)
 
 	// Create a couple of routes:
 	route1 := netlink.Route{LinkIndex: 329, Dst: nil, Src: nil, Gw: net.IPv4(172, 17, 0, 1)}
@@ -330,62 +325,28 @@ func TestGenerateKataInterfacesAndRoutes(t *testing.T) {
 	nns := NetworkNamespace{NetNsPath: "foobar", NetNsCreated: true, Endpoints: endpoints}
 
 	resInterfaces, resRoutes, err := k.generateKataInterfacesAndRoutes(nns)
-	if err != nil {
-		fmt.Println("failure")
-	}
 
-	fmt.Println("interfaces: %+v", resInterfaces)
-	fmt.Println("routes: %+v", resRoutes)
+	//
+	// Build expected results:
+	//
+	var expectedInterfaces []*pb.Interface
+	var expectedRoutes []*pb.Route
+	ipa1 := pb.IPAddress{Family: 0, Address: "172.17.0.2", Mask: "16"}
+	ipa2 := pb.IPAddress{Family: 0, Address: "182.17.0.2", Mask: "16"}
+	var expectedAddresses []*pb.IPAddress
+	expectedAddresses = append(expectedAddresses, &ipa1)
+	expectedAddresses = append(expectedAddresses, &ipa2)
+	ifc1 := pb.Interface{Device: "eth0", Name: "eth0", IPAddresses: expectedAddresses, Mtu: 1500, HwAddr: "02:00:ca:fe:00:04"}
+	rt1 := pb.Route{Dest: "", Gateway: "172.17.0.1", Device: "eth0"}
+	rt2 := pb.Route{Dest: "172.17.0.0/16", Gateway: "172.17.0.1", Device: "eth0"}
 
-	/*
-	   =========
-	   Feb 15 15:09:14 eernstworkstation kata-runtime-cc[107145]: time="2018-02-15T15:09:14-08:00" level=warning msg="endpoint description for reference" endpoint="&
-	   {NetPair:
-	   	{ID:08db426b-ab5f-480e-af4b-19af86777eb2 Name:br0 VirtIface:
-	   		{Name:eth0 HardAddr:02:00:ca:fe:00:00 Addrs:[172.17.0.2/16 eth0]} TAPIface:
-	   		{Name:tap0 HardAddr:02:42:ac:11:00:02 Addrs:[]}
-	   		NetInterworkingModel:2
-	   		VMFds:[0xc42000fa88 0xc42000fa90 0xc42000fa98 0xc42000faa0 0xc42000faa8 0xc42000fab0 0xc42000fab8 0xc42000fac0]
-	   		VhostFds:[0xc42000fac8 0xc42000fad0 0xc42000fad8 0xc42000fae0 0xc42000fae8 0xc42000faf0 0xc42000faf8 0xc42000fb00]}
-	   		EndpointProperties:
-	   		{Iface:
-	   			{LinkAttrs:
-	   				{Index:329
-	   				MTU:1500
-	   				TxQLen:0
-	   				Name:eth0
-	   				HardwareAddr:02:42:ac:11:00:02
-	   				Flags:up|broadcast|multicast
-	   				RawFlags:69699
-	   				ParentIndex:330
-	   				MasterIndex:0 Namespace:<nil> Alias: Statistics:0xc4200beb40 Promisc:0 Xdp:<nil> EncapType:ether Protinfo:<nil> OperState:up NetNsID:0 NumTxQueues:0 NumRxQueues:0}
-	   			Type:veth}
-	   		Addrs:[172.17.0.2/16 eth0]
-	   		Routes:[
-	   		{Ifindex: 329 Dst: <nil> Src: <nil> Gw: 172.17.0.1 Flags: [] Table: 254}
-	   		{Ifindex: 329 Dst: 172.17.0.0/16 Src: 172.17.0.2 Gw: <nil> Flags: [] Table: 254}]
-	   		DNS:
-	   {Servers:[] Domain: Searches:[] Options:[]}} Physical:false EndpointType:virtual}" source=virtcontainers subsystem=kata_agent
+	expectedInterfaces = append(expectedInterfaces, &ifc1)
+	expectedRoutes = append(expectedRoutes, &rt1)
+	expectedRoutes = append(expectedRoutes, &rt2)
 
-
-	   ======
-
-
-
-	   	linkAttrs := LinkAttrs
-	   	{
-	   		Name: "etho",
-	   	}
-
-	   	addr1 := netlink.Addr {
-
-	   	}
-	   	// create a couple of endpoints
-
-	   	networkNS := NetworkNamespace{
-	   		NetNsPath:    "foobar",
-	   		NetNsCreated: true,
-	   		Endpoints:    nil,
-	   	}
-	*/
+	assert.Nil(t, err, "unexpected failure when calling generateKataInterfacesAndRoutes")
+	assert.True(t, reflect.DeepEqual(resInterfaces, expectedInterfaces),
+		"Interfaces returned didn't match: got %+v, expecting %+v", resInterfaces, expectedInterfaces)
+	assert.True(t, reflect.DeepEqual(resRoutes, expectedRoutes),
+		"Routes returned didn't match: got %+v, expecting %+v", resRoutes, expectedRoutes)
 }
