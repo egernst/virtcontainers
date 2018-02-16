@@ -279,29 +279,25 @@ func TestGenerateKataInterfacesAndRoutes(t *testing.T) {
 	}
 
 	//
-	// Basic test:
+	//Create a couple of addresses
 	//
-
-	var addrs []netlink.Addr
-	var routes []netlink.Route
-
-	// Create a couple of addresses
 	address1 := &net.IPNet{IP: net.IPv4(172, 17, 0, 2), Mask: net.CIDRMask(16, 32)}
 	address2 := &net.IPNet{IP: net.IPv4(182, 17, 0, 2), Mask: net.CIDRMask(16, 32)}
-	addr1 := netlink.Addr{IPNet: address1, Label: "phyifc0"}
-	addr2 := netlink.Addr{IPNet: address2, Label: "phyifc1"}
-	addrs = append(addrs, addr1)
-	addrs = append(addrs, addr2)
+
+	addrs := []netlink.Addr{
+		{netlink.Addr{IPNet: address1, Label: "phyaddr1"}},
+		{netlink.Addr{IPNet: address2, Label: "phyaddr2"}},
+	}
 
 	// Create a couple of routes:
-	route1 := netlink.Route{LinkIndex: 329, Dst: nil, Src: nil, Gw: net.IPv4(172, 17, 0, 1)}
-	routes = append(routes, route1)
-
 	dst2 := &net.IPNet{IP: net.IPv4(172, 17, 0, 0), Mask: net.CIDRMask(16, 32)}
 	src2 := net.IPv4(172, 17, 0, 2)
 	gw2 := net.IPv4(172, 17, 0, 1)
-	route2 := netlink.Route{LinkIndex: 329, Dst: dst2, Src: src2, Gw: gw2}
-	routes = append(routes, route2)
+
+	routes := []netlink.Route{
+		{netlink.Route{LinkIndex: 329, Dst: nil, Src: nil, Gw: net.IPv4(172, 17, 0, 1)}},
+		{netlink.Route{LinkIndex: 329, Dst: dst2, Src: src2, Gw: gw2}},
+	}
 
 	networkInfo := NetworkInfo{
 		Iface: NetlinkIface{
@@ -318,9 +314,9 @@ func TestGenerateKataInterfacesAndRoutes(t *testing.T) {
 		EndpointProperties: networkInfo,
 	}
 
-	var endpoints []Endpoint
-
-	endpoints = append(endpoints, ep0)
+	endpoints := []Endpoint{
+		{ep0},
+	}
 
 	nns := NetworkNamespace{NetNsPath: "foobar", NetNsCreated: true, Endpoints: endpoints}
 
@@ -329,20 +325,19 @@ func TestGenerateKataInterfacesAndRoutes(t *testing.T) {
 	//
 	// Build expected results:
 	//
-	var expectedInterfaces []*pb.Interface
-	var expectedRoutes []*pb.Route
-	ipa1 := pb.IPAddress{Family: 0, Address: "172.17.0.2", Mask: "16"}
-	ipa2 := pb.IPAddress{Family: 0, Address: "182.17.0.2", Mask: "16"}
-	var expectedAddresses []*pb.IPAddress
-	expectedAddresses = append(expectedAddresses, &ipa1)
-	expectedAddresses = append(expectedAddresses, &ipa2)
-	ifc1 := pb.Interface{Device: "eth0", Name: "eth0", IPAddresses: expectedAddresses, Mtu: 1500, HwAddr: "02:00:ca:fe:00:04"}
-	rt1 := pb.Route{Dest: "", Gateway: "172.17.0.1", Device: "eth0"}
-	rt2 := pb.Route{Dest: "172.17.0.0/16", Gateway: "172.17.0.1", Device: "eth0"}
+	expectedAddresses := []*pb.IPAddress{
+		{&ip.IPAddress{Family: 0, Address: "172.17.0.2", Mask: "16"}},
+		{&ip.IPAddress{Family: 0, Address: "182.17.0.2", Mask: "16"}},
+	}
 
-	expectedInterfaces = append(expectedInterfaces, &ifc1)
-	expectedRoutes = append(expectedRoutes, &rt1)
-	expectedRoutes = append(expectedRoutes, &rt2)
+	expectedInterfaces := []*pb.Interface{
+		{&pb.Interface{Device: "eth0", Name: "eth0", IPAddresses: expectedAddresses, Mtu: 1500, HwAddr: "02:00:ca:fe:00:04"}},
+	}
+
+	expectedRoutes := []*pb.Route{
+		{&pb.Route{Dest: "", Gateway: "172.17.0.1", Device: "eth0"}},
+		{&pb.Route{Dest: "172.17.0.0/16", Gateway: "172.17.0.1", Device: "eth0"}},
+	}
 
 	assert.Nil(t, err, "unexpected failure when calling generateKataInterfacesAndRoutes")
 	assert.True(t, reflect.DeepEqual(resInterfaces, expectedInterfaces),
